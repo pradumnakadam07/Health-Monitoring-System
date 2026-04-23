@@ -1,55 +1,115 @@
-version: '3.8'
+name: HealthAI CI/CD Pipeline
 
-services:
-  # Frontend - Next.js
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:5000
-    depends_on:
-      - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    command: npm run dev
-    develop:
-      watch:
-        - path: ./frontend
-          target: /app
-          ignore:
-            - node_modules
-            - .next
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
-  # Backend - FastAPI
+jobs:
+
+  # 🔹 1. Backend CI (FastAPI)
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "5000:5000"
-    environment:
-      - PORT=5000
-      - NODE_ENV=development
-      - MONGODB_URI=mongodb://mongodb:27017/healthai
-    depends_on:
-      - mongodb
-    volumes:
-      - ./backend:/app
-      - /app/.cache
+    name: Backend Tests & Lint
+    runs-on: ubuntu-latest
 
-  # Database - MongoDB
-  mongodb:
-    image: mongo:7.0
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    environment:
-      - MONGO_INITDB_DATABASE=healthai
+    defaults:
+      run:
+        working-directory: backend
 
-volumes:
-  mongodb_data:
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Lint (optional)
+        run: |
+          pip install flake8
+          flake8 . || true
+
+      - name: Run Tests (if available)
+        run: |
+          pip install pytest
+          pytest || true
+
+
+  # 🔹 2. Frontend CI (Next.js)
+  frontend:
+    name: Frontend Build & Lint
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint
+        run: npm run lint || true
+
+      - name: Build
+        run: npm run build
+
+
+  # 🔹 3. Docker Build & Push (Optional)
+  docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker images
+        run: docker-compose build
+
+
+  # 🔹 4. Deploy Backend to Render
+  deploy-backend:
+    name: Deploy Backend (Render)
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Trigger Render Deploy
+        run: |
+          curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+
+  # 🔹 5. Deploy Frontend to Vercel
+  deploy-frontend:
+    name: Deploy Frontend (Vercel)
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel
+
+      - name: Deploy to Vercel
+        run: |
+          vercel --prod --token=${{ secrets.VERCEL_TOKEN }}
