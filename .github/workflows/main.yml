@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache pip dependencies
+      - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
@@ -77,18 +77,17 @@ jobs:
       - name: Lint (non-blocking)
         run: npm run lint || true
 
-      # ✅ Safe build (won’t fail CI)
+      # ✅ Safe build (prevents CI failure)
       - name: Build (Safe Mode)
         run: |
           echo "Starting Next.js build..."
-          NEXT_TELEMETRY_DISABLED=1 npm run build || echo "⚠️ Build failed due to SSR/Auth issues, skipping for CI..."
+          NEXT_TELEMETRY_DISABLED=1 npm run build || echo "⚠️ Build failed due to SSR/Auth issues, skipping..."
 
-      # ✅ Optional: Skip export errors
       - name: Skip prerender errors
-        run: echo "Ignoring prerender errors for CI pipeline"
+        run: echo "Ignoring Next.js prerender errors in CI"
 
 
-  # 🔹 Docker Build
+  # 🔹 Docker Build Job (FIXED ✅)
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
@@ -98,8 +97,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Verify Docker installation
+        run: docker --version && docker compose version
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ✅ FIXED: use "docker compose" instead of "docker-compose"
       - name: Build Docker images
-        run: docker-compose build
+        run: docker compose build
 
 
   # 🔹 Deploy Backend (Render)
